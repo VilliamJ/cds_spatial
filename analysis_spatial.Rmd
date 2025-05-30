@@ -781,7 +781,7 @@ image_files <- paste0(output_dir, "/relocations_wee__cartogram_", age_labels, ".
 # Read and animate the images
 if (all(file.exists(image_files))) {
   images <- image_read(image_files)
-  animation <- image_animate(image_join(images), fps = 0.25)  # 1 frame every 4 seconds
+  animation <- image_animate(image_join(images), fps = 0.5)  # 1 frame every 4 seconds
 
   # Save the GIF
   gif_filename <- file.path(gif_dir, "relocation_cartogram.gif")
@@ -790,6 +790,267 @@ if (all(file.exists(image_files))) {
 } else {
   warning("One or more image files are missing.")
 }
+
+```
+
+```{r}
+library(readxl)
+
+# Replace with your actual file path
+population_file_path <- "/Users/villiamjensen/Downloads/FOLK1AM.xlsx"
+
+# Extract the relevant data
+munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
+  select(municipality = `...1`,
+         population_jan_2025 = `2024M12`) %>%
+  mutate(municipality = trimws(municipality)) %>%
+  filter(!is.na(municipality), municipality != "Hele landet") %>%
+  filter(!municipality %in% c("Region Hovedstaden", "Region Sjælland", 
+                              "Region Syddanmark", "Region Midtjylland", 
+                              "Region Nordjylland"))
+
+# View the cleaned population data
+head(munic_pop_df)
+```
+```{r}
+library(tidyverse)
+library(readxl)
+library(sf)
+library(cartogram)
+library(ggplot2)
+library(magick)
+library(viridis)
+library(geodata)
+
+# ─── Load Municipalities ───────────────────────────────────────────────
+munic <- gadm(country = "DNK", level = 2, path = ".")
+
+# Convert to sf
+munic_sf <- st_as_sf(munic)
+
+# Rename to match naming conventions
+munic_sf$NAME_2 <- gsub("^Århus$", "Aarhus", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Høje Taastrup$", "Høje-Taastrup", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
+
+# Transform to projected coordinate system
+munic_sf <- st_transform(munic_sf, crs = 25832)
+
+# ─── Load Population Data ──────────────────────────────────────────────
+population_file_path <- "/Users/villiamjensen/Downloads/FOLK1AM.xlsx"
+
+munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
+  select(municipality = `...1`,
+         population_jan_2025 = `2024M12`) %>%
+  mutate(municipality = trimws(municipality)) %>%
+  filter(!is.na(municipality), municipality != "Hele landet") %>%
+  filter(!municipality %in% c("Region Hovedstaden", "Region Sjælland",
+                              "Region Syddanmark", "Region Midtjylland",
+                              "Region Nordjylland"))
+
+# ─── Define Age Groups ─────────────────────────────────────────────────
+age_groups <- list(
+  "0-17"   = 0:17,
+  "18-29"  = 18:29,
+  "30-44"  = 30:44,
+  "45-65"  = 45:65,
+  "66-99"  = 66:99
+)
+
+# ─── Loop Over Age Groups ──────────────────────────────────────────────
+for (group_name in names(age_groups)) {
+
+  age_range <- age_groups[[group_name]]
+
+  # Total relocations per municipality for current age group
+  relocations_per_muni <- df %>%
+    group_by(dest) %>%
+    summarise(total_relocations = sum(across(as.character(age_range)), na.rm = TRUE)) %>%
+    ungroup()
+
+  # Merge with population and compute popularity index (per 1000 residents)
+  relocations_with_pop <- relocations_per_muni %>%
+    left_join(munic_pop_df, by = c("dest" = "municipality")) %>%
+    mutate(
+      popularity_index = (total_relocations / population_jan_2025) * 1000
+    ) %>%
+    filter(!is.na(popularity_index))
+
+  # Join with spatial data
+  muni_group_sf <- munic_sf %>%
+    left_join(relocations_with_pop, by = c("NAME_2" = "dest")) %>%
+    filter(!is.na(popularity_index))
+
+  # Generate cartogram
+  muni_cartogram <- cartogram_cont(muni_group_sf, weight = "popularity_index", itermax = 10)
+
+  # Plot cartogram
+  p <- ggplot(muni_cartogram) +
+    geom_sf(aes(fill = popularity_index), color = "black", size = 0.2) +
+    scale_fill_viridis_c(option = "plasma", trans = "log") +
+    labs(
+      title = paste("Popularity Index (Age", group_name, "): Relocations per 1000 Residents"),
+      fill = "Index (per 1000)"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(size = 16, face = "bold")
+    )
+
+  # Save plot
+  ggsave(filename = paste0("out/popularity_cartogram_", group_name, ".png"),
+         plot = p, width = 10, height = 8, dpi = 300)
+}
+
+# ─── Create Animated GIF ───────────────────────────────────────────────
+pacman::p_load('magick')
+
+age_labels <- names(age_groups)
+output_dir <- "out"
+gif_dir <- "gifs"
+dir.create(gif_dir, showWarnings = FALSE)
+
+image_files <- paste0(output_dir, "/popularity_cartogram_", age_labels, ".png")
+
+if (all(file.exists(image_files))) {
+  images <- image_read(image_files)
+  animation <- image_animate(image_join(images), fps = 0.5)
+
+  gif_filename <- file.path(gif_dir, "popularity_cartogram.gif")
+  image_write(animation, gif_filename)
+  message("GIF saved to: ", gif_filename)
+} else {
+  warning("One or more image files are missing.")
+}
+
+```
+```{r}
+library(tidyverse)
+library(readxl)
+library(sf)
+library(cartogram)
+library(ggplot2)
+library(magick)
+library(viridis)
+
+# ─── Load Municipalities ───────────────────────────────────────────────
+munic <- gadm(country = "DNK", level = 2, path = ".")
+
+munic_sf <- st_as_sf(munic)
+munic_sf$NAME_2 <- gsub("^Århus$", "Aarhus", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Høje Taastrup$", "Høje-Taastrup", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
+munic_sf <- st_transform(munic_sf, crs = 25832)
+
+# ─── Load Population Data ──────────────────────────────────────────────
+population_file_path <- "/Users/villiamjensen/Downloads/FOLK1AM.xlsx"
+
+munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
+  select(municipality = `...1`,
+         population_jan_2025 = `2024M12`) %>%
+  mutate(municipality = trimws(municipality)) %>%
+  filter(!is.na(municipality), municipality != "Hele landet") %>%
+  filter(!municipality %in% c("Region Hovedstaden", "Region Sjælland",
+                              "Region Syddanmark", "Region Midtjylland",
+                              "Region Nordjylland"))
+
+# ─── Clean df$dest to match municipality names ─────────────────────────
+df$dest <- gsub("^Århus$", "Aarhus", df$dest)
+df$dest <- gsub("^Høje Taastrup$", "Høje-Taastrup", df$dest)
+df$dest <- gsub("^Vesthimmerland$", "Vesthimmerlands", df$dest)
+df$dest <- trimws(df$dest)
+
+# ─── Define Age Groups ─────────────────────────────────────────────────
+age_groups <- list(
+  "0-17"   = 0:17,
+  "18-29"  = 18:29,
+  "30-44"  = 30:44,
+  "45-65"  = 45:65,
+  "66-99"  = 66:99
+)
+
+# ─── Precompute Popularity Indices ─────────────────────────────────────
+popularity_all <- map_dfr(names(age_groups), function(group_name) {
+  age_range <- age_groups[[group_name]]
+  
+  relocations_per_muni <- df %>%
+    group_by(dest) %>%
+    summarise(total_relocations = sum(across(as.character(age_range)), na.rm = TRUE)) %>%
+    ungroup()
+  
+  relocations_per_muni %>%
+    left_join(munic_pop_df, by = c("dest" = "municipality")) %>%
+    mutate(
+      popularity_index = (total_relocations / population_jan_2025) * 1000,
+      age_group = group_name
+    ) %>%
+    filter(!is.na(popularity_index))
+})
+
+# ─── Safety Check ──────────────────────────────────────────────────────
+if (all(is.na(popularity_all$popularity_index))) {
+  stop("🚫 All popularity_index values are NA. Check name mismatches between df$dest and population names.")
+}
+
+# Set color scale range — fixed min to avoid log(0)
+global_min <- 0.1
+global_max <- max(popularity_all$popularity_index, na.rm = TRUE)
+
+if (!is.finite(global_max)) {
+  stop("🚫 Global max popularity index is not finite.")
+}
+
+# ─── Plot Cartograms ───────────────────────────────────────────────────
+for (group_name in names(age_groups)) {
+  
+  group_data <- popularity_all %>%
+    filter(age_group == group_name)
+  
+  muni_group_sf <- munic_sf %>%
+    left_join(group_data, by = c("NAME_2" = "dest")) %>%
+    filter(!is.na(popularity_index))
+  
+  muni_cartogram <- cartogram_cont(muni_group_sf, weight = "popularity_index", itermax = 10)
+  
+  p <- ggplot(muni_cartogram) +
+    geom_sf(aes(fill = popularity_index), color = "black", size = 0.2) +
+    scale_fill_viridis_c(option = "plasma", trans = "log", limits = c(1, 65)) + ##the values were found by summary(popularity_all$popularity_index)
+    labs(
+      title = paste("Popularity Index (Age", group_name,"): Relocations per 1000 Residents"),
+      fill = "Index (per 1000)"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(size = 16, face = "bold")
+    )
+  
+  ggsave(filename = paste0("out/popularity_cartogram_", group_name, ".png"),
+         plot = p, width = 10, height = 8, dpi = 300)
+}
+
+# ─── Create Animated GIF ───────────────────────────────────────────────
+pacman::p_load('magick')
+
+age_labels <- names(age_groups)
+output_dir <- "out"
+gif_dir <- "gifs"
+dir.create(gif_dir, showWarnings = FALSE)
+
+image_files <- paste0(output_dir, "/popularity_cartogram_", age_labels, ".png")
+
+if (all(file.exists(image_files))) {
+  images <- image_read(image_files)
+  animation <- image_animate(image_join(images), fps = 0.5)
+  
+  gif_filename <- file.path(gif_dir, "popularity_cartogram.gif")
+  image_write(animation, gif_filename)
+  message("✅ GIF saved to: ", gif_filename)
+} else {
+  warning("⚠️ One or more image files are missing.")
+}
+
 
 ```
 
