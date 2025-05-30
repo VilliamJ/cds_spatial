@@ -1,4 +1,4 @@
-![relocation_rate_by_age](https://github.com/user-attachments/assets/98b2051d-3bf0-4dfa-bde8-b332e0f20a17)This repository concerns itself with the analysis of movement patterns in different ages and age groups.
+This repository concerns itself with the analysis of movement patterns in different ages and age groups.
 
 In the paper, we investigate both the relocation rate by age, i.e. how often do different ages relocate as measured in relocations per 1000 people?
 ![Model Architecture](out/relocation_rate_by_age.png)
