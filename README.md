@@ -9,6 +9,9 @@ An analysis was also conducted in how far people were willing to move and how th
 Using cartograms, we also investigated 
 ![Demo](gifs/relocation_cartogram.gif)
 
+And popularity cartogram
+![Demo](gifs/popularity_cartogram.gif)
+
 Lastly, we also looked at the four biggest municipalities in Denmark, specifically looking at which municipalities people move from when they relocate to these big four.
 ![Demo](gifs/migration_flows_København.gif)
 ![Demo](gifs/migration_flows_Aarhus.gif)
