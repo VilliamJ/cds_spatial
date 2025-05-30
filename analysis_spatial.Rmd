@@ -1,0 +1,769 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-05-23"
+---
+
+### importing packages
+
+```{r}
+library(tidyverse)
+library(ggrepel)
+library(geodata)
+library(sf)
+library(geosphere)
+library(cartogram)
+```
+
+
+### loading in data
+```{r}
+
+# List all f_x-y.csv files
+file_paths <- list.files("new_data", pattern = "^f_\\d+-\\d+\\.csv$", full.names = TRUE)
+
+# Read and clean each file
+data_list <- lapply(file_paths, function(path) {
+  df <- read_csv2(path, locale = locale(encoding = "latin1"))
+
+  # Get x and y from filename
+  x_y <- str_match(basename(path), "f_(\\d+)-(\\d+)\\.csv")[,2:3]
+  colnames(df)[5:14] <- as.character(seq(as.integer(x_y[1]), as.integer(x_y[2])))
+
+  # Rename and clean 'orig' and 'dest' columns
+  df <- df %>%
+    mutate(
+    orig = sub("^Fra ", "", orig),
+    dest = sub("^Til ", "", dest)
+    )
+
+  return(df)
+})
+
+# Start with the first file as the base
+combined_df_female <- data_list[[1]]
+
+# Bind only the numeric columns (last 10) from the rest
+for (i in 2:length(data_list)) {
+  numeric_cols <- data_list[[i]] %>% select((ncol(.) - 9):ncol(.))
+  combined_df_female<- bind_cols(combined_df_female, numeric_cols)
+}
+
+### males
+
+# List all f_x-y.csv files
+file_paths <- list.files("new_data", pattern = "^m_\\d+-\\d+\\.csv$", full.names = TRUE)
+
+# Read and clean each file
+data_list <- lapply(file_paths, function(path) {
+  df <- read_csv2(path, locale = locale(encoding = "latin1"))
+
+  # Get x and y from filename
+  x_y <- str_match(basename(path), "m_(\\d+)-(\\d+)\\.csv")[,2:3]
+  colnames(df)[5:14] <- as.character(seq(as.integer(x_y[1]), as.integer(x_y[2])))
+
+  # Rename and clean 'orig' and 'dest' columns
+  df <- df %>%
+    mutate(
+      orig = sub("^Fra ", "", orig),
+      dest = sub("^Til ", "", dest)
+    )
+
+  return(df)
+})
+
+# Start with the first file as the base
+combined_df_male <- data_list[[1]]
+
+# Bind only the numeric columns (last 10) from the rest
+for (i in 2:length(data_list)) {
+  numeric_cols <- data_list[[i]] %>% select((ncol(.) - 9):ncol(.))
+  combined_df_male  <- bind_cols(combined_df_male, numeric_cols)
+}
+
+combined_df_male <- combined_df_male %>% mutate(sex = 1)
+combined_df_female <- combined_df_female %>% mutate(sex = 0)
+names(combined_df_female) <- names(combined_df_male)  # ensure columns match
+
+combined_df <- rbind(combined_df_male, combined_df_female)
+
+df <- combined_df %>% select(-'Mænd' & -'2024')
+```
+
+
+### cleaning data
+```{r}
+# Normalize city names: convert "Århus" to "Aarhus"
+df$orig <- recode(df$orig, "Århus" = "Aarhus")
+df$dest <- recode(df$dest, "Århus" = "Aarhus")
+
+
+
+# adding total column
+df <- df %>%
+  mutate(total = rowSums(select(., matches("^\\d+$"))))
+
+# Then use "Aarhus" in your city list
+top5_cities <- c("København", "Aarhus", "Odense", "Aalborg", "Esbjerg")
+
+```
+
+
+### loading in municipalities and transforming to sf
+```{r}
+munic <- gadm(country = "DNK", level = 2, path = ".")
+
+# Convert to sf
+munic_sf <- st_as_sf(munic)
+
+# Get centroids and coordinates
+centroids <- st_centroid(munic_sf)
+```
+
+# Extract coordinates and attach muni name from NAME_2; calculating centroids and extract coordinates safely
+```{r}
+centroids_coords <- munic_sf %>%
+  st_centroid() %>%
+  mutate(
+    lon = st_coordinates(.)[, 1],
+    lat = st_coordinates(.)[, 2],
+    muni = NAME_2  # explicitly create a 'muni' column
+  ) %>%
+  st_drop_geometry()  # drop geometry so it's a plain tibble
+
+centroids_coords$muni <- recode(centroids_coords$muni, "Århus" = "Aarhus")
+
+```
+
+# calculating global maximum of movers (ved ik om jeg skal bruge)
+```{r}
+# # Calculate the global maximum number of movers
+# global_max_movers <- df %>%
+#   group_by(orig, dest) %>%
+#   summarise(movers = sum(total), .groups = "drop") %>%
+#   summarise(max_movers = max(movers)) %>%
+#   pull(max_movers)
+
+
+
+```
+
+# plotting flow line maps
+```{r}
+
+pacman::p_load('ggtext')  # Add at top if not already loaded
+
+# ─── Define age groups ─────────────────────────────────────────────────────────
+age_groups <- list(
+  "0-17"   = 0:17,
+  "18-29"  = 18:29,
+  "30-44"  = 30:44,
+  "45-65"  = 45:65,
+  "66-99"  = 66:99
+)
+
+# ─── Define top cities ─────────────────────────────────────────────────────────
+top5_cities <- c("København", "Aarhus", "Odense", "Aalborg")
+
+# ─── Calculate global max movers for consistent alpha scaling ──────────────────
+all_age_cols <- paste0(0:99)
+df$total_movers <- rowSums(df[all_age_cols], na.rm = TRUE)
+global_max_movers <- max(df$total_movers, na.rm = TRUE)
+
+# ─── Loop over each age group ──────────────────────────────────────────────────
+for (age_label in names(age_groups)) {
+  age_range <- age_groups[[age_label]]
+  age_cols <- paste0(age_range)
+
+  # 1. Aggregate by age group
+  df_age <- df %>%
+    mutate(total = rowSums(select(., all_of(age_cols)), na.rm = TRUE))
+
+  # 2. Loop over each city
+  for (city in top5_cities) {
+
+    flow_city <- df_age %>%
+      filter(dest == city, orig != dest) %>%
+      group_by(orig, dest) %>%
+      summarise(movers = sum(total), .groups = "drop") %>%
+      left_join(centroids_coords, by = c("orig" = "muni")) %>%
+      rename(lon_o = lon, lat_o = lat) %>%
+      left_join(centroids_coords, by = c("dest" = "muni")) %>%
+      rename(lon_d = lon, lat_d = lat) %>%
+      filter(!is.na(lon_o), !is.na(lon_d))
+
+    # 3. Compute distance & 80% radius
+    flow_city <- flow_city %>%
+      mutate(distance_km = geosphere::distHaversine(
+        matrix(c(lon_o, lat_o), ncol = 2),
+        matrix(c(lon_d, lat_d), ncol = 2)
+      ) / 1000) %>%
+      arrange(distance_km) %>%
+      mutate(
+        cum_movers = cumsum(movers),
+        total_movers = sum(movers),
+        cum_percent = cum_movers / total_movers
+      )
+
+    radius_80 <- flow_city %>%
+      filter(cum_percent <= 0.80) %>%
+      summarise(max_distance = max(distance_km)) %>%
+      pull(max_distance)
+
+    # 4. Create sf circle
+    circle <- st_point(c(flow_city$lon_d[1], flow_city$lat_d[1])) %>%
+      st_sfc(crs = 4326) %>%
+      st_transform(3857) %>%
+      st_buffer(dist = radius_80 * 1000) %>%
+      st_transform(4326)
+
+    # 5. Select top origins for labeling
+    top_origins <- flow_city %>%
+      slice_max(order_by = movers, n = 10)
+
+    # 6. Plot
+    p <- ggplot() +
+      geom_sf(data = munic_sf, fill = "lightgreen", color = "white", size = 0.2) +
+      geom_segment(
+        data = flow_city,
+        aes(x = lon_o, y = lat_o, xend = lon_d, yend = lat_d,
+            linewidth = log1p(movers), alpha = log1p(movers / global_max_movers)),
+        color = "steelblue"
+      ) +
+       # geom_sf(data = circle, fill = NA, color = "red", linewidth = 1.2, linetype = "dashed") +
+      geom_text_repel(
+        data = top_origins,
+        aes(x = lon_o, y = lat_o, label = orig),
+        size = 3,
+        color = "black",
+        max.overlaps = Inf
+      ) +
+      # annotate(
+      #   "text",
+      #   x = flow_city$lon_d[1], y = flow_city$lat_d[1],
+      #   label = paste0("80% within ", round(radius_80, 1), " km"),
+      #   vjust = 1, hjust = 0.5,
+      #   size = 3.5, color = "red"
+      # ) +
+     # geom_text(
+     #    data = centroids_coords %>% filter(muni == city),
+     #    aes(x = lon, y = lat, label = muni),
+     #    size = 5,
+     #    fontface = "bold",
+     #    color = "black",
+     #    nudge_y = 0.2) + 
+      scale_linewidth_continuous(
+        range = c(0.6, 5),
+        limits = c(0, global_max_movers - 30),
+        name = "Number of movers"
+      ) +
+      scale_alpha_continuous(
+        name = "Relative flow",
+        limits = c(0, 1)
+      ) +
+      guides(
+        alpha = guide_legend(order = 1),
+        linewidth = guide_legend(order = 2)
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        panel.background = element_rect(fill = "lightblue", color = NA),
+        plot.background = element_rect(fill = "lightblue", color = NA),
+        plot.subtitle = element_markdown(size = 12),
+        plot.title = element_markdown(size = 14)
+      ) +
+   labs(
+  title = paste0("Migration Flows into <b>", city, "</b> 2024"),
+  subtitle = paste0(
+    "<span style='color:darkred;'><b>Age group: ", age_label, "</b></span> | Arrows show width & opacity ∝ movers"
+  ),
+  x = 'Longitude',
+  y = 'Latitude'
+)
+    # Save the plot
+    filename <- paste0("out/migration_flows_", city, "_age_", gsub("-", "_", age_label), ".png")
+    ggsave(filename = filename, plot = p, width = 8, height = 6, dpi = 300)
+
+    print(p)
+  }
+}
+```
+
+```{r}
+pacman::p_load('magick')
+library(magick)
+
+# Define your parameters
+age_labels <- names(age_groups)
+output_dir <- "out"
+gif_dir <- "gifs"
+dir.create(gif_dir, showWarnings = FALSE)
+
+for (city in top5_cities) {
+  # Generate file paths for this city's images
+  image_files <- paste0(output_dir, "/migration_flows_", city, "_age_", gsub("-", "_", age_labels), ".png")
+  
+  # Read and combine images
+  images <- image_read(image_files)
+  animation <- image_animate(image_join(images), fps = 0.25)  # Adjust fps as desired
+  
+  # Save gif
+  gif_filename <- file.path(gif_dir, paste0("migration_flows_", city, ".gif"))
+  image_write(animation, gif_filename)
+}
+
+```
+
+```{r}
+pacman::p_load('ggtext')  # Add at top if not already loaded
+
+# ─── Define age groups ─────────────────────────────────────────────────────────
+age_groups <- list(
+  "0-17"   = 0:17,
+  "18-29"  = 18:29,
+  "30-44"  = 30:44,
+  "45-65"  = 45:65,
+  "66-99"  = 66:99
+)
+
+# ─── Define top cities ─────────────────────────────────────────────────────────
+top5_cities <- c("København", "Aarhus", "Odense", "Aalborg")
+
+# ─── Calculate global max movers for consistent alpha & linewidth scaling ──────
+all_age_cols <- paste0(0:99)
+df$total_movers <- rowSums(df[all_age_cols], na.rm = TRUE)
+global_max_movers_log <- log1p(max(df$total_movers, na.rm = TRUE))
+
+# ─── Loop over each age group ──────────────────────────────────────────────────
+for (age_label in names(age_groups)) {
+  age_range <- age_groups[[age_label]]
+  age_cols <- paste0(age_range)
+
+  # 1. Aggregate by age group
+  df_age <- df %>%
+    mutate(total = rowSums(select(., all_of(age_cols)), na.rm = TRUE))
+
+  # 2. Loop over each city
+  for (city in top5_cities) {
+
+    flow_city <- df_age %>%
+      filter(dest == city, orig != dest) %>%
+      group_by(orig, dest) %>%
+      summarise(movers = sum(total), .groups = "drop") %>%
+      left_join(centroids_coords, by = c("orig" = "muni")) %>%
+      rename(lon_o = lon, lat_o = lat) %>%
+      left_join(centroids_coords, by = c("dest" = "muni")) %>%
+      rename(lon_d = lon, lat_d = lat) %>%
+      filter(!is.na(lon_o), !is.na(lon_d)) %>%
+      mutate(
+        movers_log = log1p(movers),
+        alpha_scaled = movers_log / global_max_movers_log
+      )
+
+    # 5. Select top origins for labeling
+    top_origins <- flow_city %>%
+      slice_max(order_by = movers, n = 10)
+
+    # 6. Plot
+    p <- ggplot() +
+      geom_sf(data = munic_sf, fill = "lightgreen", color = "white", size = 0.2) +
+      geom_segment(
+        data = flow_city,
+        aes(x = lon_o, y = lat_o, xend = lon_d, yend = lat_d,
+            linewidth = movers_log, alpha = alpha_scaled),
+        color = "steelblue"
+      ) +
+      geom_text_repel(
+        data = top_origins,
+        aes(x = lon_o, y = lat_o, label = orig),
+        size = 3,
+        color = "black",
+        max.overlaps = Inf
+      ) +
+      scale_linewidth_continuous(
+        range = c(0.3, 2.5),  # Adjust thickness as needed
+        limits = c(0, global_max_movers_log),
+        name = "Log-scaled movers"
+      ) +
+      scale_alpha_continuous(
+        name = "Relative flow (log scale)",
+        limits = c(0, 1)
+      ) +
+      guides(
+        alpha = guide_legend(order = 1),
+        linewidth = guide_legend(order = 2)
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 8),
+        panel.background = element_rect(fill = "lightblue", color = NA),
+        plot.background = element_rect(fill = "lightblue", color = NA),
+        plot.subtitle = element_markdown(size = 12),
+        plot.title = element_markdown(size = 14)
+      ) +
+      labs(
+        title = paste0("Migration Flows into <b>", city, "</b> 2024"),
+        subtitle = paste0(
+          "<span style='color:darkred;'><b>Age group: ", age_label,
+          "</b></span> | Arrows show width & opacity ∝ movers"
+        ),
+        x = 'Longitude',
+        y = 'Latitude'
+      )
+
+    # Save the plot
+    filename <- paste0("out/migration_flows_", city, "_age_", gsub("-", "_", age_label), ".png")
+    ggsave(filename = filename, plot = p, width = 8, height = 6, dpi = 300)
+
+    print(p)
+  }
+}
+
+```
+
+
+# calculating and visualising mean kilometers traveled per relocation by age and age groups
+```{r}
+# Add age group column
+age_distances_all <- age_distances_all %>%
+  mutate(age_group = case_when(
+    age <= 17 ~ "0–17",
+    age <= 29 ~ "18–29",
+    age <= 44 ~ "30–44",
+    age <= 65 ~ "45–65",
+    TRUE ~ "66–99"
+  ))
+
+# Create segment dataframe for colored line segments
+segment_data <- age_distances_all %>%
+  arrange(age) %>%
+  mutate(
+    xend = lead(age),
+    yend = lead(mean_distance),
+    group_end = lead(age_group)
+  ) %>%
+  filter(!is.na(xend))
+
+# Plot
+ggplot() +
+  # Confidence interval ribbon in grey
+  geom_ribbon(data = age_distances_all, aes(x = age, ymin = ci_lower, ymax = ci_upper), 
+              fill = "grey80", alpha = 0.3) +
+  
+  # Base grey line to maintain continuity
+  geom_line(data = age_distances_all, aes(x = age, y = mean_distance), color = "grey80", size = 1.2) +
+  
+  # Colored segments by age group
+  geom_segment(data = segment_data, aes(x = age, y = mean_distance, 
+                                        xend = xend, yend = yend, color = age_group), size = 1.5) +
+  
+  # Points colored by age group
+  geom_point(data = age_distances_all, aes(x = age, y = mean_distance, color = age_group), size = 2) +
+  
+  labs(
+    title = "Mean Kilometers Traveled per Age (All Municipalities)",
+    x = "Age",
+    y = "Mean Distance (km)",
+    color = "Age Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major = element_line(color = "grey80"),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_x_continuous(breaks = seq(0, 99, 5)) +
+  scale_y_continuous(breaks = seq(20, 100, 10)) +
+  scale_color_manual(values = c(
+    "0–17" = "#E41A1C",
+    "18–29" = "#377EB8",
+    "30–44" = "#4DAF4A",
+    "45–65" = "#984EA3",
+    "66–99" = "#FF7F00"
+  ))
+
+# Save the plot
+ggsave("mean_distance_by_age_colored.png", width = 10, height = 6, dpi = 300)
+```
+
+## calculating and visualizing total relocations per age and age group
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Prepare a dataframe for storing results
+age_relocations <- data.frame()
+
+# Loop through each age (0 to 99)
+for (age in 0:99) {
+  total_relocations <- df %>%
+    filter(!is.na(.[[as.character(age)]])) %>%
+    summarise(total_relocations = sum(.[[as.character(age)]], na.rm = TRUE)) %>%
+    mutate(age = age)
+  
+  age_relocations <- bind_rows(age_relocations, total_relocations)
+}
+
+# Create age group column
+age_relocations <- age_relocations %>%
+  mutate(age_group = case_when(
+    age <= 17 ~ "0–17",
+    age <= 29 ~ "18–29",
+    age <= 44 ~ "30–44",
+    age <= 65 ~ "45–65",
+    TRUE ~ "66–99"
+  ))
+
+# Create a segment dataframe for colored line segments
+segment_data <- age_relocations %>%
+  arrange(age) %>%
+  mutate(
+    xend = lead(age),
+    yend = lead(total_relocations),
+    group_end = lead(age_group)
+  ) %>%
+  filter(!is.na(xend))  # Remove last row which has NA in lead
+
+# Plot continuous line in grey and overlay colored segments
+ggplot() +
+  geom_line(data = age_relocations, aes(x = age, y = total_relocations), color = "grey80", size = 1) +
+  geom_segment(data = segment_data, aes(x = age, y = total_relocations, 
+                                        xend = xend, yend = yend, color = age_group), size = 1.5) +
+  geom_point(data = age_relocations, aes(x = age, y = total_relocations, color = age_group), size = 2) +
+  scale_x_continuous(breaks = seq(0, 99, 5)) +
+  scale_y_continuous(breaks = seq(0, 20000, 4000)) +
+  labs(
+    title = "Total Relocations per Age (All Municipalities)",
+    x = "Age",
+    y = "Total Relocations",
+    color = "Age Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major = element_line(color = "grey80"),
+    panel.grid.minor = element_blank()
+  ) + 
+  scale_color_manual(values = c(
+    "0–17" = "#E41A1C",   # red
+    "18–29" = "#377EB8",  # blue
+    "30–44" = "#4DAF4A",  # green
+    "45–65" = "#984EA3",  # purple
+    "66–99" = "#FF7F00"   # orange
+  ))
+ggsave("total_relocations_by_age.png", width = 10, height = 6, dpi = 300)
+```
+
+```{r}
+population_df <- read_csv('/Users/villiamjensen/Downloads/age_cleaned.csv')
+```
+```{r}
+# Prepare a dataframe for storing total relocations per age
+age_relocations <- data.frame()
+
+# Loop through each age (0 to 99)
+for (age in 0:99) {
+  total_relocations <- df %>%
+    filter(!is.na(.[[as.character(age)]])) %>%
+    summarise(total_relocations = sum(.[[as.character(age)]], na.rm = TRUE)) %>%
+    mutate(age = age)
+  
+  age_relocations <- bind_rows(age_relocations, total_relocations)
+}
+
+# Merge with population data and compute relocation rate per 1000 people
+age_relocations <- age_relocations %>%
+  left_join(population_df, by = "age") %>%
+  mutate(
+    relocation_rate = (total_relocations / population) * 1000,
+    age_group = case_when(
+      age <= 17 ~ "0–17",
+      age <= 29 ~ "18–29",
+      age <= 44 ~ "30–44",
+      age <= 65 ~ "45–65",
+      TRUE ~ "66–99"
+    )
+  )
+
+# Create segment data for colored line segments
+segment_data <- age_relocations %>%
+  arrange(age) %>%
+  mutate(
+    xend = lead(age),
+    yend = lead(relocation_rate),
+    group_end = lead(age_group)
+  ) %>%
+  filter(!is.na(xend))
+
+# Plot: relocation rate per 1000 people
+ggplot() +
+  geom_line(data = age_relocations, aes(x = age, y = relocation_rate), color = "grey80", size = 1) +
+  geom_segment(data = segment_data, aes(x = age, y = relocation_rate,
+                                        xend = xend, yend = yend, color = age_group), size = 1.5) +
+  geom_point(data = age_relocations, aes(x = age, y = relocation_rate, color = age_group), size = 2) +
+  scale_x_continuous(breaks = seq(0, 99, 5)) +
+  labs(
+    title = "Relocation Rate per Age (per 1000 people)",
+    x = "Age",
+    y = "Relocations per 1000 People",
+    color = "Age Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major = element_line(color = "grey80"),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_color_manual(values = c(
+    "0–17" = "#E41A1C",   # red
+    "18–29" = "#377EB8",  # blue
+    "30–44" = "#4DAF4A",  # green
+    "45–65" = "#984EA3",  # purple
+    "66–99" = "#FF7F00"   # orange
+  ))
+
+ggsave("relocation_rate_by_age.png", width = 10, height = 6, dpi = 300)
+```
+
+
+# creating heatmaps for age groups
+```{r}
+# ved ikke hvorfor jeg skal skrive de næste linjer kode, men af en eller grund virkede det ikke når jeg ikke gjorde det
+munic <- gadm(country = "DNK", level = 2, path = ".")
+
+# Convert to sf
+munic_sf <- st_as_sf(munic)
+
+# Rename Århus to Aarhus in the NAME_2 column
+munic_sf$NAME_2 <- gsub("^Århus$", "Aarhus", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Høje Taastrup$", "Høje-Taastrup", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
+
+# ─── Define age groups ─────────────────────────────────────────────────────────
+age_groups <- list(
+  "0-17"   = 0:17,
+  "18-29"  = 18:29,
+  "30-44"  = 30:44,
+  "45-65"  = 45:65,
+  "66-99"  = 66:99
+)
+
+# Prepare a dataframe for storing results
+relocations_by_muni <- data.frame()
+
+# Calculate total relocations by age group and destination
+for (age_label in names(age_groups)) {
+  age_range <- age_groups[[age_label]]
+  age_cols <- as.character(age_range)
+  
+  # Sum all ages in the group
+  relocations <- df %>%
+    mutate(total = rowSums(select(., all_of(age_cols)), na.rm = TRUE)) %>%
+    group_by(dest) %>%
+    summarise(total_relocations = sum(total, na.rm = TRUE)) %>%
+    mutate(age_group = age_label)
+  
+  # Append to the main dataframe
+  relocations_by_muni <- bind_rows(relocations_by_muni, relocations)
+}
+
+# Join with the population data
+relocations_by_muni <- relocations_by_muni %>%
+  left_join(population_df, by = c("dest" = "municipality")) %>%
+  mutate(relocations_per_capita = total_relocations / as.numeric(population_jan_2025))
+
+
+
+relocations_by_muni <- relocations_by_muni %>% filter(!is.na(relocations_per_capita))
+
+# Join with the spatial data
+munic_sf <- munic_sf %>%
+  left_join(relocations_by_muni, by = c("NAME_2" = "dest")) %>%
+  filter(!is.na(age_group))
+
+
+
+# Plotting the heatmap
+ggplot(munic_sf) +
+  geom_sf(aes(fill = relocations_per_capita)) +
+  facet_wrap(~age_group) +
+  scale_fill_viridis_c(option = "plasma", trans = "log") +
+  labs(
+    title = "Per Capita Relocations to Each Municipality by Age Group",
+    fill = "Relocations per Capita"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "right",
+    strip.text = element_text(size = 12, face = "bold")
+  )
+
+```
+
+### creating cartograms
+```{r}
+# der er igen noget kode der bliver gentaget men hey if it works..
+
+munic <- gadm(country = "DNK", level = 2, path = ".")
+
+# Convert to sf
+munic_sf <- st_as_sf(munic)
+
+# Rename Århus to Aarhus in the NAME_2 column
+munic_sf$NAME_2 <- gsub("^Århus$", "Aarhus", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Høje Taastrup$", "Høje-Taastrup", munic_sf$NAME_2)
+munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
+
+# Transform to a Projected Coordinate System (ETRS89 / UTM zone 32N)
+munic_sf <- st_transform(munic_sf, crs = 25832)
+
+# ─── Define age groups ─────────────────────────────────────────────────────────
+age_groups <- list(
+  "0-17"   = 0:17,
+  "18-29"  = 18:29,
+  "30-44"  = 30:44,
+  "45-65"  = 45:65,
+  "66-99"  = 66:99
+)
+
+# Loop Over Age Groups
+for (group_name in names(age_groups)) {
+  
+  # Get the Age Range
+  age_range <- age_groups[[group_name]]
+  
+  # Calculate Total Relocations per Municipality for the Current Age Group
+  relocations_per_muni <- df %>%
+    group_by(dest) %>%
+    summarise(total_relocations = sum(across(as.character(age_range)), na.rm = TRUE)) %>%
+    ungroup()
+  
+  # Join with Spatial Data
+  muni_group_sf <- munic_sf %>%
+    left_join(relocations_per_muni, by = c("NAME_2" = "dest")) %>%
+    filter(!is.na(total_relocations))
+  
+  # Create the Cartogram
+  muni_cartogram <- cartogram_cont(muni_group_sf, weight = "total_relocations", itermax = 10)
+  
+  # Plot the Cartogram
+  p <- ggplot(muni_cartogram) +
+    geom_sf(aes(fill = total_relocations), color = "black", size = 0.2) +
+    scale_fill_viridis_c(option = "plasma", trans = "log", limits = c(1, 30000)) +
+    labs(
+      title = paste("Cartogram of Relocations (Age", group_name, ") per Municipality in Denmark"),
+      fill = "Total Relocations"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(size = 16, face = "bold")
+    )
+  
+  # Save the Plot
+  ggsave(filename = paste0("out/relocations_wee__cartogram_", group_name, ".png"), plot = p, width = 10, height = 8, dpi = 300)
+}
+
+```
+
+
