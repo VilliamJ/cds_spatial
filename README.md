@@ -17,20 +17,17 @@ An analysis was also conducted in how far people were willing to move and how th
 
 ### Cartogram of Relocations
 
-
 Using cartograms, we also investigated which municipalities receive the most movers per age group
 ![Demo](gifs/relocation_cartogram.gif)
 
 
 ### Proportional Popularity Cartogram of Relocations
 
-
 And creating a popularity cartogram (calculated by total relocations to that municipality per 1000 people in that municipality), we investigated which places are most proportionally popular per age group.
 ![Demo](gifs/popularity_cartogram.gif)
 
 
 ### Flow Maps
-
 
 Lastly, we also looked at the four biggest municipalities in Denmark, specifically looking at which municipalities people move from when they relocate to these big four.
 ![Demo](gifs/migration_flows_København.gif)
