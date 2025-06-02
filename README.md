@@ -1,3 +1,4 @@
+** An Exploration of Danish Relocation Patterns **
 This repository concerns itself with the analysis of movement patterns in different ages and age groups.
 
 In the paper, we investigate both the relocation rate by age, i.e. how often do different ages relocate as measured in relocations per 1000 people?
