@@ -1,11 +1,22 @@
 ---
-title: "Untitled"
-output: html_document
-date: "2025-05-23"
+title: "Spatial Analytics"
+author:
+- Villiam Molte
+- Kristiane Warncke
+date: "04-06-2025"
+output:
+  pdf_document:
+    latex_engine: xelatex
 ---
-
+### setup chunk
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,      
+  message = FALSE,    
+  warning = FALSE     
+)
+```
 ### importing packages
-
 ```{r}
 library(tidyverse)
 library(ggrepel)
