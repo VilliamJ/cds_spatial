@@ -1,7 +1,9 @@
 # **An Exploration of Danish Relocation Patterns** 
 
+This project investigates internal relocation patterns in Denmark during 2024, focusing on how often, how far, and where people move across age groups. Using data from Danmarks Statistikbank, we visualize these patterns with line plots, cartograms, and flow maps—highlighting migration flows into Denmark’s four largest municipalities.
 
-This repository concerns itself with the analysis of movement patterns in different ages and age groups.
+Our findings show that young adults (18–29) move more frequently and over longer distances, especially toward major cities, while older adults tend to relocate shorter distances, often from neighboring municipalities. These patterns reflect broader life-course dynamics and raise important questions about spatial inequality and urbanization.
+
 
 ## Authors 
 <p align="center">
