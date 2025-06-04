@@ -16,13 +16,6 @@ This repository concerns itself with the analysis of movement patterns in differ
 </p>
 
 
-<p align="center">
-  Spatial Analytics | Cultural Data Science  
-  <br>
-  Aarhus University (June 2025)
-</p>
-
-
 ## Repository Structure
 
 The repository is structured as such:
