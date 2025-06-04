@@ -17,6 +17,7 @@ library(readxl)
 library(magick)
 library(viridis)
 library(ggtext)
+
 ```
 
 ### loading in data
@@ -139,24 +140,10 @@ centroids_coords$muni <- recode(centroids_coords$muni, "Århus" = "Aarhus")
 
 ```
 
-# calculating global maximum of movers (ved ik om jeg skal bruge)
-```{r}
-# # Calculate the global maximum number of movers
-# global_max_movers <- df %>%
-#   group_by(orig, dest) %>%
-#   summarise(movers = sum(total), .groups = "drop") %>%
-#   summarise(max_movers = max(movers)) %>%
-#   pull(max_movers)
-
-
-
-```
-
 # plotting flow line maps
 ```{r}
 
-
-# ─── Define age groups ─────────────────────────────────────────────────────────
+#defining age groups
 age_groups <- list(
   "0-17"   = 0:17,
   "18-29"  = 18:29,
@@ -165,24 +152,24 @@ age_groups <- list(
   "66-99"  = 66:99
 )
 
-# ─── Define top cities ─────────────────────────────────────────────────────────
+#defining top municipalities
 top5_cities <- c("København", "Aarhus", "Odense", "Aalborg")
 
-# ─── Calculate global max movers for consistent alpha & linewidth scaling ──────
+# calculating global max movers for consistent alpha scaling across all figures
 all_age_cols <- paste0(0:99)
 df$total_movers <- rowSums(df[all_age_cols], na.rm = TRUE)
 global_max_movers_log <- log1p(max(df$total_movers, na.rm = TRUE))
 
-# ─── Loop over each age group ──────────────────────────────────────────────────
+# looping through age group
 for (age_label in names(age_groups)) {
   age_range <- age_groups[[age_label]]
   age_cols <- paste0(age_range)
 
-  # 1. Aggregate by age group
+  # aggregating by age group
   df_age <- df %>%
     mutate(total = rowSums(select(., all_of(age_cols)), na.rm = TRUE))
 
-  # 2. Loop over each city
+  # for each municipality
   for (city in top5_cities) {
 
     flow_city <- df_age %>%
@@ -199,11 +186,11 @@ for (age_label in names(age_groups)) {
         alpha_scaled = movers_log / global_max_movers_log
       )
 
-    # 5. Select top origins for labeling
+    # select top origin municipalities for labelling
     top_origins <- flow_city %>%
       slice_max(order_by = movers, n = 10)
 
-    # 6. Plot
+    # plotting
     p <- ggplot() +
       geom_sf(data = munic_sf, fill = "lightgreen", color = "white", size = 0.2) +
       geom_segment(
@@ -251,7 +238,7 @@ for (age_label in names(age_groups)) {
         y = 'Latitude'
       )
 
-    # Save the plot
+    #saving the plot
     filename <- paste0("out/migration_flows_", city, "_age_", gsub("-", "_", age_label), ".png")
     ggsave(filename = filename, plot = p, width = 8, height = 6, dpi = 300)
 
@@ -263,9 +250,6 @@ for (age_label in names(age_groups)) {
 
 # creating gif
 ```{r}
-pacman::p_load('magick')
-library(magick)
-
 #defining parameters
 age_labels <- names(age_groups)
 output_dir <- "out"
@@ -295,13 +279,13 @@ age_distances_all <- data.frame()
 #loop through each age (0 to 99)
 for (age in 0:99) {
   
-  # Calculate total movers for this specific age
+  #calculate total movers for this specific age
   df_age <- df %>%
     filter(!is.na(.[[as.character(age)]])) %>%
     mutate(total = .[[as.character(age)]]) %>%
     filter(total > 0)  # Remove rows with zero movers
   
-  # Calculate distances for each movement
+  #calculate distances for each movement
   distances <- df_age %>%
     left_join(centroids_coords, by = c("orig" = "muni")) %>%
     rename(lon_o = lon, lat_o = lat) %>%
@@ -335,7 +319,7 @@ age_distances_all <- age_distances_all %>%
   ))
 
 
-# Create segment dataframe for colored line segments
+#create segment dataframe for colored line segments
 segment_data <- age_distances_all %>%
   arrange(age) %>%
   mutate(
@@ -346,20 +330,20 @@ segment_data <- age_distances_all %>%
   filter(!is.na(xend))
 
 
-# Plot
+# plot
 ggplot() +
-  # Confidence interval ribbon in grey
+  # confidence interval ribbon in grey
   geom_ribbon(data = age_distances_all, aes(x = age, ymin = ci_lower, ymax = ci_upper), 
               fill = "grey80", alpha = 0.3) +
   
-  # Base grey line to maintain continuity
+  # base grey line to maintain continuity
   geom_line(data = age_distances_all, aes(x = age, y = mean_distance), color = "grey80", size = 1.2) +
   
-  # Colored segments by age group
+  # colored segments by age group
   geom_segment(data = segment_data, aes(x = age, y = mean_distance, 
                                         xend = xend, yend = yend, color = age_group), size = 1.5) +
   
-  # Points colored by age group
+  # points colored by age group
   geom_point(data = age_distances_all, aes(x = age, y = mean_distance, color = age_group), size = 2) +
   
   labs(
@@ -389,10 +373,10 @@ ggsave("out/mean_distance_by_age_colored.png", width = 10, height = 6, dpi = 300
 
 ## calculating and visualizing total relocations per age and age group
 ```{r}
-# Prepare a dataframe for storing results
+#preparing a dataframe for storing results
 age_relocations <- data.frame()
 
-# Loop through each age (0 to 99)
+#looping through each age
 for (age in 0:99) {
   total_relocations <- df %>%
     filter(!is.na(.[[as.character(age)]])) %>%
@@ -402,7 +386,7 @@ for (age in 0:99) {
   age_relocations <- bind_rows(age_relocations, total_relocations)
 }
 
-# Create age group column
+# create age group column
 age_relocations <- age_relocations %>%
   mutate(age_group = case_when(
     age <= 17 ~ "0–17",
@@ -412,7 +396,7 @@ age_relocations <- age_relocations %>%
     TRUE ~ "66–99"
   ))
 
-# Create a segment dataframe for colored line segments
+# create a segment dataframe for colored line segments
 segment_data <- age_relocations %>%
   arrange(age) %>%
   mutate(
@@ -422,7 +406,7 @@ segment_data <- age_relocations %>%
   ) %>%
   filter(!is.na(xend))  # Remove last row which has NA in lead
 
-# Plot continuous line in grey and overlay colored segments
+# plot continuous line in grey and overlay colored segments
 ggplot() +
   geom_line(data = age_relocations, aes(x = age, y = total_relocations), color = "grey80", size = 1) +
   geom_segment(data = segment_data, aes(x = age, y = total_relocations, 
@@ -456,10 +440,10 @@ ggsave("out/total_relocations_by_age.png", width = 10, height = 6, dpi = 300)
 
 population_df <- read_csv('new_data/age_cleaned.csv')
 
-# Prepare a dataframe for storing total relocations per age
+# prepare a dataframe for storing total relocations per age
 age_relocations <- data.frame()
 
-# Loop through each age (0 to 99)
+# loop through each age (0 to 99)
 for (age in 0:99) {
   total_relocations <- df %>%
     filter(!is.na(.[[as.character(age)]])) %>%
@@ -469,7 +453,7 @@ for (age in 0:99) {
   age_relocations <- bind_rows(age_relocations, total_relocations)
 }
 
-# Merge with population data and compute relocation rate per 1000 people
+#merge with population data and compute relocation rate per 1000 people
 age_relocations <- age_relocations %>%
   left_join(population_df, by = "age") %>%
   mutate(
@@ -483,7 +467,7 @@ age_relocations <- age_relocations %>%
     )
   )
 
-# Create segment data for colored line segments
+# create segment data for colored line segments
 segment_data <- age_relocations %>%
   arrange(age) %>%
   mutate(
@@ -493,7 +477,7 @@ segment_data <- age_relocations %>%
   ) %>%
   filter(!is.na(xend))
 
-# Plot: relocation rate per 1000 people
+# plot: relocation rate per 1000 people
 ggplot() +
   geom_line(data = age_relocations, aes(x = age, y = relocation_rate), color = "grey80", size = 1) +
   geom_segment(data = segment_data, aes(x = age, y = relocation_rate,
@@ -525,94 +509,23 @@ ggsave("out/relocation_rate_by_age.png", width = 10, height = 6, dpi = 300)
 ### note: this plot may look very similar to the previous one but this one takes into the skewness of age distribution, i.e. there being fewer 99 year olds than 18 year olds.
 ```
 
-# creating heatmaps for age groups
-```{r}
-# # ved ikke hvorfor jeg skal skrive de næste linjer kode, men af en eller grund virkede det ikke når jeg ikke gjorde det
-# munic <- gadm(country = "DNK", level = 2, path = ".")
-# 
-# # Convert to sf
-# munic_sf <- st_as_sf(munic)
-# 
-# # Rename Århus to Aarhus in the NAME_2 column
-# munic_sf$NAME_2 <- gsub("^Århus$", "Aarhus", munic_sf$NAME_2)
-# munic_sf$NAME_2 <- gsub("^Høje Taastrup$", "Høje-Taastrup", munic_sf$NAME_2)
-# munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
-# 
-# # ─── Define age groups ─────────────────────────────────────────────────────────
-# age_groups <- list(
-#   "0-17"   = 0:17,
-#   "18-29"  = 18:29,
-#   "30-44"  = 30:44,
-#   "45-65"  = 45:65,
-#   "66-99"  = 66:99
-# )
-# 
-# # Prepare a dataframe for storing results
-# relocations_by_muni <- data.frame()
-# 
-# # Calculate total relocations by age group and destination
-# for (age_label in names(age_groups)) {
-#   age_range <- age_groups[[age_label]]
-#   age_cols <- as.character(age_range)
-#   
-#   # Sum all ages in the group
-#   relocations <- df %>%
-#     mutate(total = rowSums(select(., all_of(age_cols)), na.rm = TRUE)) %>%
-#     group_by(dest) %>%
-#     summarise(total_relocations = sum(total, na.rm = TRUE)) %>%
-#     mutate(age_group = age_label)
-#   
-#   # Append to the main dataframe
-#   relocations_by_muni <- bind_rows(relocations_by_muni, relocations)
-# }
-# 
-# # Join with the population data
-# relocations_by_muni <- relocations_by_muni %>%
-#   left_join(population_df, by = c("dest" = "municipality")) %>%
-#   mutate(relocations_per_capita = total_relocations / as.numeric(population_jan_2025))
-# 
-# 
-# relocations_by_muni <- relocations_by_muni %>% filter(!is.na(relocations_per_capita))
-# 
-# # Join with the spatial data
-# munic_sf <- munic_sf %>%
-#   left_join(relocations_by_muni, by = c("NAME_2" = "dest")) %>%
-#   filter(!is.na(age_group))
-# 
-# 
-# # Plotting the heatmap
-# ggplot(munic_sf) +
-#   geom_sf(aes(fill = relocations_per_capita)) +
-#   facet_wrap(~age_group) +
-#   scale_fill_viridis_c(option = "plasma", trans = "log") +
-#   labs(
-#     title = "Per Capita Relocations to Each Municipality by Age Group",
-#     fill = "Relocations per Capita"
-#   ) +
-#   theme_minimal(base_size = 14) +
-#   theme(
-#     legend.position = "right",
-#     strip.text = element_text(size = 12, face = "bold")
-#   )
-
-```
 
 ### creating cartograms
 ```{r}
 munic <- gadm(country = "DNK", level = 2, path = ".")
 
-# Convert to sf
+# convert to sf
 munic_sf <- st_as_sf(munic)
 
-# Rename Århus to Aarhus in the NAME_2 column
+# rename Århus to Aarhus in the NAME_2 column
 munic_sf$NAME_2 <- gsub("^Århus$", "Aarhus", munic_sf$NAME_2)
 munic_sf$NAME_2 <- gsub("^Høje Taastrup$", "Høje-Taastrup", munic_sf$NAME_2)
 munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
 
-# Transform to a Projected Coordinate System (ETRS89 / UTM zone 32N)
+# transform to a Projected Coordinate System (ETRS89 / UTM zone 32N)
 munic_sf <- st_transform(munic_sf, crs = 25832)
 
-# ─── Define age groups ─────────────────────────────────────────────────────────
+#defining age groups
 age_groups <- list(
   "0-17"   = 0:17,
   "18-29"  = 18:29,
@@ -621,27 +534,27 @@ age_groups <- list(
   "66-99"  = 66:99
 )
 
-# Loop Over Age Groups
+# looping through age groups
 for (group_name in names(age_groups)) {
   
-  # Get the Age Range
+  # getting age range
   age_range <- age_groups[[group_name]]
   
-  # Calculate Total Relocations per Municipality for the Current Age Group
+  # calculate total relocations per municipality for the current age group
   relocations_per_muni <- df %>%
     group_by(dest) %>%
     summarise(total_relocations = sum(across(as.character(age_range)), na.rm = TRUE)) %>%
     ungroup()
   
-  # Join with Spatial Data
+  # join with Spatial Data
   muni_group_sf <- munic_sf %>%
     left_join(relocations_per_muni, by = c("NAME_2" = "dest")) %>%
     filter(!is.na(total_relocations))
   
-  # Create the Cartogram
+  # create the cartogram
   muni_cartogram <- cartogram_cont(muni_group_sf, weight = "total_relocations", itermax = 10)
   
-  # Plot the Cartogram
+  # plot the cartogram
   p <- ggplot(muni_cartogram) +
     geom_sf(aes(fill = total_relocations), color = "black", size = 0.2) +
     scale_fill_viridis_c(option = "plasma", trans = "log", limits = c(1, 30000)) +
@@ -662,6 +575,7 @@ for (group_name in names(age_groups)) {
 ```
 
 ```{r}
+#creating gif
 pacman::p_load('magick')
 
 # Define your age labels (in the same order as your cartogram PNGs)
@@ -692,10 +606,10 @@ if (all(file.exists(image_files))) {
 ```{r}
 library(readxl)
 
-# Replace with your actual file path
+# loading population data
 population_file_path <- "new_data/FOLK1AM.xlsx"
 
-# Extract the relevant data
+# extracting relevant data
 munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
   select(municipality = `...1`,
          population_jan_2025 = `2024M12`) %>%
@@ -705,13 +619,13 @@ munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
                               "Region Syddanmark", "Region Midtjylland", 
                               "Region Nordjylland"))
 
-# View the cleaned population data
+# view the cleaned population data
 head(munic_pop_df)
 ```
 
 ```{r}
 
-# ─── Load Municipalities ───────────────────────────────────────────────
+#loading municipalities
 munic <- gadm(country = "DNK", level = 2, path = ".")
 
 munic_sf <- st_as_sf(munic)
@@ -721,7 +635,7 @@ munic_sf$NAME_2 <- gsub("^Vesthimmerland$", "Vesthimmerlands", munic_sf$NAME_2)
 munic_sf <- st_transform(munic_sf, crs = 25832)
 
 # ─── Load Population Data ──────────────────────────────────────────────
-population_file_path <- "/Users/villiamjensen/Downloads/FOLK1AM.xlsx"
+population_file_path <- "new_data/FOLK1AM.xlsx"
 
 munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
   select(municipality = `...1`,
@@ -732,13 +646,13 @@ munic_pop_df <- read_excel(population_file_path, skip = 2) %>%
                               "Region Syddanmark", "Region Midtjylland",
                               "Region Nordjylland"))
 
-# ─── Clean df$dest to match municipality names ─────────────────────────
+#clean df$dest to match municipality names
 df$dest <- gsub("^Århus$", "Aarhus", df$dest)
 df$dest <- gsub("^Høje Taastrup$", "Høje-Taastrup", df$dest)
 df$dest <- gsub("^Vesthimmerland$", "Vesthimmerlands", df$dest)
 df$dest <- trimws(df$dest)
 
-# ─── Define Age Groups ─────────────────────────────────────────────────
+#defining age groups
 age_groups <- list(
   "0-17"   = 0:17,
   "18-29"  = 18:29,
@@ -747,7 +661,7 @@ age_groups <- list(
   "66-99"  = 66:99
 )
 
-# ─── Precompute Popularity Indices ─────────────────────────────────────
+# calculating popularity indeces
 popularity_all <- map_dfr(names(age_groups), function(group_name) {
   age_range <- age_groups[[group_name]]
   
@@ -765,7 +679,7 @@ popularity_all <- map_dfr(names(age_groups), function(group_name) {
     filter(!is.na(popularity_index))
 })
 
-# ─── Plot Cartograms ───────────────────────────────────────────────────
+#plotting cartograms
 for (group_name in names(age_groups)) {
   
   group_data <- popularity_all %>%
@@ -794,7 +708,7 @@ for (group_name in names(age_groups)) {
          plot = p, width = 10, height = 8, dpi = 300)
 }
 
-# ─── Create Animated GIF ───────────────────────────────────────────────
+#creating gif of cartograms
 pacman::p_load('magick')
 
 age_labels <- names(age_groups)
