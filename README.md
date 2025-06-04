@@ -3,20 +3,8 @@
 
 This repository concerns itself with the analysis of movement patterns in different ages and age groups.
 
-## Structure of 
-cds_spatial/
-│
-├── gadm/              # Folder containing shapefiles and geographic boundaries used in the analysis
-│
-├── gifs/              # Folder with animated GIFs created for visualizing migration trends
-│
-├── new_data/          # Folder containing migration data for 2024 and population data of Denmark in Q2024 
-│
-├── out/               # Folder with analysis outputs such as summary tables and processed files
-│
-├── analysis_spatial.Rmd     # Main R Markdown script for the spatial analysis
-├── analysis_spatial.html    # Rendered HTML version of the final report
-├── README.md          # Overview of the project and folder structure
+## Structure of Repository
+<pre> ## Folder Structure cds_spatial/ ├── gadm/ # Folder containing shapefiles and geographic boundaries used in the analysis ├── gifs/ # Folder with animated GIFs created for visualizing migration trends ├── new_data/ # Folder containing migration data for 2024 and population data of Denmark in Q2024 ├── out/ # Folder with analysis outputs such as summary tables and processed files ├── analysis_spatial.Rmd # Main R Markdown script for the spatial analysis ├── analysis_spatial.html # Rendered HTML version of the final report ├── README.md # Overview of the project and folder structure </pre>
 
 
 ### Relocation Rate
