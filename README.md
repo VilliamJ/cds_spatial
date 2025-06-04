@@ -3,7 +3,26 @@
 
 This repository concerns itself with the analysis of movement patterns in different ages and age groups.
 
-## Structure of Repository
+## Authors 
+<p align="center">
+  <strong>Villiam Molte Jensen</strong> (<a href="https://github.com/VilliamJ">@VilliamJ</a>) and
+  <strong>Kristiane Uhrenholt Warncke</strong> (<a href="https://github.com/KristianeWarncke">@KristianeWarncke</a>)
+</p>
+
+<p align="center">
+  Spatial Analytics | Cultural Data Science  
+  <br>
+  Aarhus University (June 2025)
+</p>
+
+
+<p align="center">
+  Spatial Analytics | Cultural Data Science  
+  <br>
+  Aarhus University (June 2025)
+</p>
+
+
 ## Repository Structure
 
 The repository is structured as such:
