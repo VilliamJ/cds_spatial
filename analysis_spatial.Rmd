@@ -256,7 +256,6 @@ for (age_label in names(age_groups)) {
     print(p)
   }
 }
-## note: a radius circle was initially created, but we elected not to include it in our final product - the code still remains but is crossed out for curious minds who want to see it.
 ```
 
 # creating gif
